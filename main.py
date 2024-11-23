@@ -7,15 +7,20 @@ import random
 from unicodedata import normalize
 import base64, struct
 from datetime import datetime, timedelta
+from collections import defaultdict
+
 
 # Carga la data de los archivos
 GOOGLE_PATH = "data/google"
 DATA_PATH = "data/libros.csv"
 API_KEY = "AIzaSyARZ0__vzi64hmmlMBbAAG6dqUFFiSmmOg"
 BASE_URL = "https://www.googleapis.com/books/v1/volumes?q=+isbn:"
-ERROR_ID = 2998
+ERROR_ID = 4005
 LEN = 20000 - ERROR_ID
 SQL_FILE_PATH = "data/insert_queries.sql"
+BOOKS_SIZE = 1274
+USERS_SIZE = 3000
+GENERATED_POSTS = 1000
 
 # Languages map 
 LANGUAGES = {
@@ -30,6 +35,8 @@ LANGUAGES = {
     "ru": "Ruso",
     "ca": "Catalán",
     "eo": "Esperanto",
+    "gl": "Gallego",
+    "pt-BR": "Portugués (Brasil)",
 }
 
 # Data csv
@@ -102,7 +109,7 @@ def main():
     data_LEN = data[ERROR_ID:LEN].reset_index(drop=True)
     #get_data_from_google(data_LEN)
     clean_data()
-    #process_google_data()
+    process_google_data()
     add_sql()
 
 def get_data_from_google(data_LEN):
@@ -174,7 +181,6 @@ def process_google_data():
     for file in os.listdir("data/google"):
         filename = os.fsdecode(file)
         with open(f"data/google/{filename}", "r", encoding='utf8') as f:
-            print(f"Processing file {filename}")
             rjson = json.load(f)
             item = rjson.get("items", [{}])[0]
             book_in_data = None
@@ -193,7 +199,7 @@ def process_google_data():
 
             for i in range(len(clean_data)):
                 if clean_data["isbn"][i] == isbn_13 or clean_data["isbn"][i] == isbn_10:
-                    print(f"Matched {clean_data['isbn'][i]} with {isbn_13}")
+                    #print(f"Matched {clean_data['isbn'][i]} with {isbn_13}")
                     book_in_data = clean_data.iloc[i]
                     break
             
@@ -308,15 +314,15 @@ def process_google_data():
                 images_id_counter += 1
 
             # Guardar los dataframes en csv
-            authors_pd.to_csv('data/output/csv/1_author.csv', index=False)
-            publishers_pd.to_csv('data/output/csv/2_publisher.csv', index=False)
-            categories_pd.to_csv('data/output/csv/3_genre.csv', index=False)
-            books_pd.to_csv('data/output/csv/4_books.csv', index=False)
-            authors_books_pd.to_csv('data/output/csv/5_authors_books.csv', index=False)
-            categories_books_pd.to_csv('data/output/csv/6_genre_books.csv', index=False)
-            images_pd.to_csv('data/output/csv/7_image.csv', index=False)
-            lang_pd.to_csv('data/output/csv/8_lang.csv', index=False)
-            books_lang_pd.to_csv('data/output/csv/9_books_lang.csv', index=False)
+            authors_pd.to_csv('data/output/csv/01_author.csv', index=False)
+            publishers_pd.to_csv('data/output/csv/02_publisher.csv', index=False)
+            categories_pd.to_csv('data/output/csv/03_genre.csv', index=False)
+            books_pd.to_csv('data/output/csv/04_books.csv', index=False)
+            authors_books_pd.to_csv('data/output/csv/05_authors_books.csv', index=False)
+            categories_books_pd.to_csv('data/output/csv/06_genre_books.csv', index=False)
+            images_pd.to_csv('data/output/csv/07_image.csv', index=False)
+            lang_pd.to_csv('data/output/csv/08_lang.csv', index=False)
+            books_lang_pd.to_csv('data/output/csv/09_books_lang.csv', index=False)
             
 def add_author_to_pd(author_name):
     global author_id_counter
@@ -375,13 +381,15 @@ def add_sql():
     images_to_sql()
     lang_to_sql()
     books_lang_to_sql()
-    generate_randoms_users(1000)
+    generate_randoms_users(USERS_SIZE)
     posts = generate_posts()
     generate_state_history_with_logic(posts)
-
+    generate_reviews()
+    generate_logic_for_my_users(posts)
+    
 def authors_to_sql():
-    authors = pd.read_csv("data/output/csv/1_author.csv")
-    authors_sql_path = "data/output/sql/1_author.sql"
+    authors = pd.read_csv("data/output/csv/01_author.csv")
+    authors_sql_path = "data/output/sql/01_author.sql"
     with open(authors_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(authors)):
             # Escapar comillas simples
@@ -389,27 +397,27 @@ def authors_to_sql():
             f.write(f"INSERT INTO public.author (name, created_at, updated_at) VALUES ('{author_name}', {authors['created_at'][i]}, {authors['updated_at'][i]});\n")
 
 def publishers_to_sql():
-    publishers = pd.read_csv("data/output/csv/2_publisher.csv")
-    publishers_sql_path = "data/output/sql/2_publisher.sql"
+    publishers = pd.read_csv("data/output/csv/02_publisher.csv")
+    publishers_sql_path = "data/output/sql/02_publisher.sql"
     with open(publishers_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(publishers)):
             name = publishers['name'][i].replace("'", "''")
             f.write(f"INSERT INTO public.publisher (name, created_at, updated_at) VALUES ('{name}', {publishers['created_at'][i]}, {publishers['updated_at'][i]});\n")
 
 def categories_to_sql():
-    categories = pd.read_csv("data/output/csv/3_genre.csv")
-    categories_sql_path = "data/output/sql/3_genre.sql"
+    categories = pd.read_csv("data/output/csv/03_genre.csv")
+    categories_sql_path = "data/output/sql/03_genre.sql"
     with open(categories_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(categories)):
             name = categories['name'][i].replace("'", "''")
             f.write(f"INSERT INTO public.genre (name, created_at, updated_at) VALUES ('{name}', {categories['created_at'][i]}, {categories['updated_at'][i]});\n")
 
 def books_to_sql():
-    books = pd.read_csv("data/output/csv/4_books.csv")
+    books = pd.read_csv("data/output/csv/04_books.csv")
     # transform date to yyyy-mm-dd
     books['synopsis'] = books['synopsis'].fillna('')
     books['synopsis'] = books['synopsis'].astype(str)
-    books_sql_path = "data/output/sql/4_books.sql"
+    books_sql_path = "data/output/sql/04_books.sql"
     with open(books_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(books)):
             # Escapar comillas simples en todos los valores de texto
@@ -429,78 +437,146 @@ def format_date(date):
 
     return date
 
-def random_date():
-    date = f"{random.randint(1935, 2024)}-{random.randint(1, 12)}-{random.randint(1, 28)}"
-    # add leading zero to month and day
-    return '-'.join([f"{int(x):02d}" for x in date.split('-')])
 
 def authors_books_to_sql():
-    authors_books = pd.read_csv("data/output/csv/5_authors_books.csv")
-    authors_books_sql_path = "data/output/sql/5_authors_books.sql"
+    authors_books = pd.read_csv("data/output/csv/05_authors_books.csv")
+    authors_books_sql_path = "data/output/sql/05_authors_books.sql"
     with open(authors_books_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(authors_books)):
             f.write(f"INSERT INTO public.book_author (id_author, id_book) VALUES ({authors_books['id_author'][i]}, {authors_books['id_book'][i]});\n")
 
 def categories_books_to_sql():
-    categories_books = pd.read_csv("data/output/csv/6_genre_books.csv")
-    categories_books_sql_path = "data/output/sql/6_genre_books.sql"
+    categories_books = pd.read_csv("data/output/csv/06_genre_books.csv")
+    categories_books_sql_path = "data/output/sql/06_genre_books.sql"
     with open(categories_books_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(categories_books)):
             f.write(f"INSERT INTO public.book_genre (id_genre, id_book) VALUES ({categories_books['id_category'][i]}, {categories_books['id_book'][i]});\n")
 
 def images_to_sql():
-    images = pd.read_csv("data/output/csv/7_image.csv")
-    images_sql_path = "data/output/sql/7_image.sql"
+    images = pd.read_csv("data/output/csv/07_image.csv")
+    images_sql_path = "data/output/sql/07_image.sql"
     with open(images_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(images)):
             alt = images['alt'][i].replace("'", "''")
             f.write(f"INSERT INTO public.image (url, alt, id_book) VALUES ('{images['url'][i]}', '{alt}', {images['id_book'][i]});\n")
 
 def lang_to_sql():
-    lang = pd.read_csv("data/output/csv/8_lang.csv")
-    lang_sql_path = "data/output/sql/8_lang.sql"
+    lang = pd.read_csv("data/output/csv/08_lang.csv")
+    lang_sql_path = "data/output/sql/08_lang.sql"
     with open(lang_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(lang)):
             f.write(f"INSERT INTO public.lang (name, abbr, created_at, updated_at) VALUES ('{lang['name'][i]}', '{lang['abbr'][i]}', {lang['created_at'][i]}, {lang['updated_at'][i]});\n")
 
 def books_lang_to_sql():
-    books_lang = pd.read_csv("data/output/csv/9_books_lang.csv")
-    books_lang_sql_path = "data/output/sql/9_books_lang.sql"
+    books_lang = pd.read_csv("data/output/csv/09_books_lang.csv")
+    books_lang_sql_path = "data/output/sql/09_books_lang.sql"
     with open(books_lang_sql_path, "a", encoding='utf-8') as f:
         for i in range(len(books_lang)):
             f.write(f"INSERT INTO public.book_lang (id_book, id_lang) VALUES ({books_lang['id_book'][i]}, {books_lang['id_lang'][i]});\n")
 
-def generate_randoms_users(n):
-    #INSERT INTO public."user" (created_at, deleted_at, updated_at, birth_date, email, genre, hashed_password, last_name, name, role, user_site_name, id_municipality, id_province, phone_number, address, instagram) VALUES
-    names = ["Juan", "Pedro", "Pablo", "María", "José", "Ana", "Luis", "Carlos", "Andrea", "Marta", "Laura", "Sofía", "Lucía", "Javier", "David", "Miguel", "Rosa", "Elena", "Carmen", "Antonio", "Manuel", "Rafael", "Francisco", "Jorge", "Alberto", "Diego", "Fernando", "Sara", "Isabel", "Cristina", "Patricia", "Natalia", "Eva", "Raquel", "Beatriz", "Silvia", "Gloria", "Victoria", "Marina", "Mónica", "Teresa", "Rocío", "Celia", "Clara", "Julia", "Paula", "Alicia", "Lorena", "Miriam", "Nerea", "Irene", "Carmen", "María", "Ángela", "María", "Ángeles", "María", "José", "María", "Carmen", "María", "Pilar", "María", "Isabel", "María", "Dolores", "María", "Teresa", "Ana", "María", "María", "Luisa", "María", "Laura", "María", "Victoria", "María", "Elena", "María", "África", "María", "Ángela", "María", "Rosa", "María", "Nieves", "María", "Soledad", "María", "Cristina", "María", "Paz", "María", "Milagros", "María", "Carmen", "María", "Ángeles", "María", "Luz", "María", "Consuelo", "María", "José", "María", "Antonia", "María", "Lourdes", "María", "Mercedes", "María", "Rosario", "María", "Pilar", "María", "Isabel", "María", "Dolores", "María", "Teresa", "Ana", "María", "María", "Luisa", "María", "Laura", "María", "Victoria", "María", "Elena", "María", "África", "María", "Ángela", "María", "Rosa", "María", "Nieves", "María", "Soledad", "María", "Cristina", "María", "Paz", "María", "Milagros", "María", "Carmen", "María", "Ángeles", "María", "Luz", "María", "Consuelo", "María", "José", "María", "Antonia", "María", "Lourdes", "María", "Mercedes", "María", "Rosario", "María", "Pilar", "María", "Isabel", "María", "Dolores", "María", "Teresa", "Ana", "María", "María", "Luisa", "María", "Laura", "María", "Victoria", "María", "Elena", "María", "África", "María", "Ángela", "María", "Rosa", "María", "Nieves", "María", "Soledad", "María", "Cristina", "María", "Paz", "María", "Milagros", "María", "Carmen", "María", "Ángeles", "María", "Luz", "María", "Consuelo", "María", "José", "María", "Antonia", "María", "Lourdes", "María", "Mercedes", "María", "Rosario", "María", "Pilar", "María", "Isabel", "María", "Dolores", "María", "Teresa", "Ana"]
-    last_names = ["García", "Fernández", "González", "Rodríguez", "López", "Martínez", "Sánchez", "Pérez", "Gómez", "Martín", "Jiménez", "Ruiz", "Hernández", "Díaz", "Moreno", "Álvarez", "Muñoz", "Romero", "Alonso", "Gutiérrez", "Navarro", "Torres", "Domínguez", "Vázquez", "Ramos", "Gil", "Ramírez", "Serrano", "Blanco", "Molina", "Morales", "Ortega", "Delgado", "Suárez", "Castro", "Ortiz", "Rubio", "Marín", "Sanz", "Iglesias", "Nuñez", "Medina", "Garrido", "Cortés", "Redondo", "Castillo", "Santos", "Lozano", "Guerrero", "Cano", "Prieto", "Méndez", "Calvo", "Pascual", "Vidal", "León", "Herrero", "Peña", "Flores", "Cruz", "Carrasco", "Esteban", "Parra", "Bravo", "Aguilar", "Santana", "Hidalgo", "Lorenzo", "Montero", "Ibáñez", "Vega", "Fuentes", "Cabrera", "Rey", "Mora", "Vicente", "Arias", "Carmona", "Moya", "Santiago", "Salas", "Soto", "Rojas", "Bermúdez", "Giménez", "Pardo", "Estévez", "Bravo", "Aguilar", "Santana", "Hidalgo", "Lorenzo", "Montero", "Ibáñez", "Vega", "Fuentes", "Cabrera", "Rey", "Mora", "Vicente", "Arias", "Carmona", "Moya", "Santiago", "Salas", "Soto", "Rojas", "Bermúdez"]
-    emails = ["gmail.com", "hotmail.com", "outlook.com"]
-    genres = ["male", "female", "N/A"]
-    address_names = ["Primavera", "Avenida del Sol", "Plaza Mayor", "Paseo de los Álamos", "Camino Real", "Travesía del Río", "Cuesta de la Luz", "Ronda de San Pedro", "Carretera de la Sierra", "Rambla del Mar", "Callejón del Gato", "Avenida de las Estrellas", "Plaza de la Libertad", "Paseo de los Pinos", "Camino de la Esperanza", "Travesía del Olivo", "Cuesta del Molino", "Ronda de los Abedules", "Carretera de los Cipreses", "Rambla de los Sueños", "Calle de la Paz", "Avenida del Amanecer", "Plaza de la Fuente", "Paseo de la Amistad", "Camino de la Loma", "Travesía del Alba", "Cuesta del Castillo", "Ronda del Parque", "Carretera de la Flor", "Rambla de los Encantos", "Calle de los Tulipanes", "Avenida de la Luna", "Plaza del Mirador", "Paseo de los Cedros", "Camino de las Rosas", "Travesía de la Montaña", "Cuesta de los Vientos", "Ronda del Bosque", "Carretera del Cielo", "Rambla del Horizonte", "Calle de la Aurora", "Avenida del Sauce", "Plaza de las Campanas", "Paseo del Horizonte", "Camino de los Aromas", "Travesía del Valle", "Cuesta del Lago", "Ronda de los Nogales", "Carretera del Alba", "Rambla de los Jazmines"]
+def random_date(start_year=1970, end_year=2005):
+    """Genera una fecha aleatoria entre los años especificados."""
+    start_date = datetime(start_year, 1, 1)
+    end_date = datetime(end_year, 12, 31)
+    delta = end_date - start_date
+    random_days = random.randint(0, delta.days)
+    return (start_date + timedelta(days=random_days)).strftime("%Y-%m-%d")
 
-    users_sql_path = "data/output/sql/15_users.sql"
+def generate_random_password():
+    """Genera una contraseña segura codificada en base64."""
+    rand_float = random.SystemRandom().random()
+    password = base64.b64encode(struct.pack('!d', rand_float)).decode('utf-8').replace('=', '').replace("'", '')
+    return password
+
+def generate_randoms_users(n):
+    names = ["Juan", "Pedro", "Pablo", "María", "José", "Ana", "Luis", "Carlos", "Andrea", "Marta", "Laura", "Sofía", "Lucía", "Javier", "David", "Miguel", "Rosa", "Elena", "Carmen", "Antonio", "Manuel", "Rafael", "Francisco", "Jorge", "Alberto", "Diego", "Fernando", "Sara", "Isabel", "Cristina", "Patricia", "Natalia", "Eva", "Raquel", "Beatriz", "Silvia", "Gloria", "Victoria", "Marina", "Mónica", "Teresa", "Rocío", "Celia", "Clara", "Julia", "Paula", "Alicia", "Lorena", "Miriam", "Nerea", "Irene"]
+    last_names = ["García", "Fernández", "González", "Rodríguez", "López", "Martínez", "Sánchez", "Pérez", "Gómez", "Martín", "Jiménez", "Ruiz", "Hernández", "Díaz", "Moreno", "Álvarez", "Muñoz", "Romero", "Alonso", "Gutiérrez", "Navarro", "Torres", "Domínguez", "Vázquez", "Ramos", "Gil", "Ramírez", "Serrano", "Blanco", "Molina", "Morales", "Ortega", "Delgado", "Suárez", "Castro", "Ortiz", "Rubio", "Marín", "Sanz", "Iglesias", "Nuñez", "Medina", "Garrido"]
+    emails_domains = ["gmail.com", "hotmail.com", "outlook.com"]
+    genres = ["male", "female", "N/A"]
+    address_names = ["Primavera", "Avenida del Sol", "Plaza Mayor", "Paseo de los Álamos", "Camino Real", "Travesía del Río", "Cuesta de la Luz", "Ronda de San Pedro", "Carretera de la Sierra", "Rambla del Mar", "Callejón del Gato", "Avenida de las Estrellas"]
+
+    users_sql_path = "data/output/sql/15_user.sql"
+    generated_emails = set()  # Para asegurar unicidad de los correos electrónicos
 
     with open(users_sql_path, "a", encoding='utf-8') as f:
-        for i in range(n):
+        for _ in range(n):
             name = random.choice(names)
             last_name = random.choice(last_names)
-            # remove accents and special characters from name and last_name and lowercase
-            name_for_email = normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
-            last_name_for_email = normalize('NFD', last_name).encode('ascii', 'ignore').decode('utf-8')
-            birth_date = random_date()            
-            email = f"{name_for_email.lower()}{last_name_for_email.lower()}{random_chars_for_email(birth_date)}@{random.choice(emails)}"
+
+            # Normalizar texto y eliminar caracteres especiales
+            name_for_email = normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8').lower()
+            last_name_for_email = normalize('NFD', last_name).encode('ascii', 'ignore').decode('utf-8').lower()
+
+            # Generar un correo único
+            while True:
+                random_suffix = random.randint(1, 9999)
+                email = f"{name_for_email}.{last_name_for_email}{random_suffix}@{random.choice(emails_domains)}"
+                if email not in generated_emails:
+                    generated_emails.add(email)
+                    break
+
+            # Resto de los datos del usuario
+            birth_date = random_date()
             role = "USER"
-            site_name = f"{name_for_email.lower()}{last_name_for_email.lower()}"
+            site_name = f"{name_for_email}.{last_name_for_email}"
             genre = random.choice(genres)
             id_municipality = random.randint(1, 10)
             id_province = random.randint(1, 10)
             phone_number = f"{random.randint(351, 370)}-{random.randint(100, 999)}-{random.randint(1000, 9999)}"
             address = f"{random.choice(address_names)} {random.randint(1, 100)}"
-            birth_date_arr = birth_date.split('-')
-            instagram = f"@{name_for_email.lower()}{last_name_for_email.lower()}{random.choice(birth_date_arr)}"
-            rand_float = random.SystemRandom().random()
-            password = base64.b64encode((struct.pack('!d', rand_float))).decode('utf-8').replace('=', '').replace("'", '')
-            f.write(f"INSERT INTO public.\"user\" (created_at, updated_at, birth_date, email, genre, hashed_password, last_name, name, role, user_site_name, id_municipality, id_province, phone_number, address, instagram) VALUES (NOW(), NOW(), '{birth_date}', '{email}', '{genre}', '{password}', '{last_name}', '{name}', '{role}', '{site_name}', {id_municipality}, {id_province}, '{phone_number}', '{address}', '{instagram}');\n")
+            instagram = f"@{name_for_email}{last_name_for_email}"
+            password = generate_random_password()
+
+            # Escribir en archivo SQL
+            f.write(
+                f"INSERT INTO public.\"user\" (created_at, updated_at, birth_date, email, genre, hashed_password, last_name, name, role, user_site_name, id_municipality, id_province, phone_number, address, instagram) "
+                f"VALUES (NOW(), NOW(), '{birth_date}', '{email}', '{genre}', '{password}', '{last_name}', '{name}', '{role}', '{site_name}', {id_municipality}, {id_province}, '{phone_number}', '{address}', '{instagram}');\n"
+            )
+
+    aylenuser = {
+        "created_at": "NOW()",
+        "updated_at": "NOW()",
+        "name": "Aylen",
+        "last_name": "Pattuzzi",
+        "email": "aylenrominapattuzzi@gmail.com",
+        "genre": "F",
+        "hashed_password": "password",
+        "role": "USER",
+        "user_site_name": "aylenpattuzzi",
+        "id_municipality": 24,
+        "id_province": 2,
+        "phone_number": "351-123-4567",
+        "address": "Rivadavia 12",
+        "instagram": "@aylenpattuzzi"
+    }
+
+    julianuser = {
+        "created_at": "NOW()",
+        "updated_at": "NOW()",
+        "name": "Julian",
+        "last_name": "Bollatti",
+        "email": "julianismael13@gmail.com",
+        "genre": "M",
+        "hashed_password": "password",
+        "role": "USER",
+        "user_site_name": "julianbollatti",
+        "id_municipality": 24,
+        "id_province": 2,
+        "phone_number": "351-123-4567",
+        "address": "San Martin 22",
+        "instagram": "@julianbollatti"
+    }
+
+    with open(users_sql_path, "a", encoding='utf-8') as f:
+        f.write(
+            f"INSERT INTO public.\"user\" (created_at, updated_at, birth_date, email, genre, hashed_password, last_name, name, role, user_site_name, id_municipality, id_province, phone_number, address, instagram) "
+            f"VALUES ({aylenuser['created_at']}, {aylenuser['updated_at']}, '1996-09-01', '{aylenuser['email']}', '{aylenuser['genre']}', '{aylenuser['hashed_password']}', '{aylenuser['last_name']}', '{aylenuser['name']}', '{aylenuser['role']}', '{aylenuser['user_site_name']}', {aylenuser['id_municipality']}, {aylenuser['id_province']}, '{aylenuser['phone_number']}', '{aylenuser['address']}', '{aylenuser['instagram']}');\n"
+        )
+        f.write(
+            f"INSERT INTO public.\"user\" (created_at, updated_at, birth_date, email, genre, hashed_password, last_name, name, role, user_site_name, id_municipality, id_province, phone_number, address, instagram) "
+            f"VALUES ({julianuser['created_at']}, {julianuser['updated_at']}, '1995-11-19', '{julianuser['email']}', '{julianuser['genre']}', '{julianuser['hashed_password']}', '{julianuser['last_name']}', '{julianuser['name']}', '{julianuser['role']}', '{julianuser['user_site_name']}', {julianuser['id_municipality']}, {julianuser['id_province']}, '{julianuser['phone_number']}', '{julianuser['address']}', '{julianuser['instagram']}');\n"
+        )
+
 
 def random_chars_for_email(birth_date):
     birth_array = birth_date.split('-')
@@ -508,9 +584,8 @@ def random_chars_for_email(birth_date):
     return f"{random.choice(char_)}{random.choice(birth_array)}{random.choice(char_)}"
 
 def generate_posts():
-    books_size = 719
-    users_size = 1000
-    posts_sql_path = "data/output/sql/16_posts.sql"
+
+    posts_sql_path = "data/output/sql/16_post.sql"
     posts = []  # Para almacenar los datos de los posts generados
 
     book_conditions_description = [
@@ -522,78 +597,114 @@ def generate_posts():
     types = ["EXCHANGE", "PURCHASE"]
 
     with open(posts_sql_path, "a", encoding='utf-8') as f:
-        for i in range(2234):
+        for i in range(GENERATED_POSTS):  # Incrementar el número de posts generados
             created_at = "NOW()"
             updated_at = "NOW()"
             description = random.choice(book_conditions_description)
             image = f"image_{random.randint(1, 1000)}.jpg"
             price = round(random.uniform(5000, 90000), 2)
-            type_ = random.choice(types)
+            # Elegir un 80% como EXCHANGE y un 20% como PURCHASE
+            type_ = random.choices(types, weights=[0.8, 0.2], k=1)[0]
             book_state = random.choice(book_states)
-            id_book = random.randint(1, books_size)
-            id_user = random.randint(1, users_size)
+            id_book = random.randint(1, BOOKS_SIZE)
+            id_user = random.randint(1, USERS_SIZE)
 
+              # Checkear si el post ya fue creado por el mismo usuario
+            while any(post["id_user"] == id_user and post["id_book"] == id_book for post in posts):
+                id_book = random.randint(1, BOOKS_SIZE)
+                id_user = random.randint(1, USERS_SIZE)
+            
             f.write(
-                f"INSERT INTO public.post (created_at, updated_at, book_state, description, image, price, type, id_book, id_user) "
-                f"VALUES ({created_at}, {updated_at}, '{book_state}', '{description}', '{image}', {price}, '{type_}', {id_book}, {id_user});\n"
+                f"INSERT INTO public.post (created_at, updated_at, book_state, description, image, price, type, id_book, id_user, book_send, book_received) "
+                f"VALUES ({created_at}, {updated_at}, '{book_state}', '{description}', '{image}', {price}, '{type_}', {id_book}, {id_user}, false, false);\n"
             )
+            
             # Guardar post en la lista
             posts.append({
                 "id_post": i + 1,
                 "id_user": id_user,
+                "id_book": id_book,
                 "type": type_,
                 "created_at": created_at
             })
+    print(len(posts))
     return posts
 
+
 def generate_state_history_with_logic(posts):
-    state_history_sql_path = "data/output/sql/19_state_history.sql"
-    exchange_offer_sql_path = "data/output/sql/17_exchange_offer.sql"
-    exchange_sql_path = "data/output/sql/18_exchange.sql"
-    exchange_users_sql_path = "data/output/sql/20_exchange_users.sql"
+    state_history_sql_path = "data/output/sql/20_state_history.sql"
+    exchange_offer_sql_path = "data/output/sql/18_exchange_offer.sql"
+    exchange_sql_path = "data/output/sql/19_exchange.sql"
+    exchange_users_sql_path = "data/output/sql/21_exchange_users.sql"
+    survey_sql_path = "data/output/sql/23_survey.sql"
+
+    SURVEY_COMMENTS = {
+        1: ["Muy insatisfecho", "Pésimo intercambio", "No volvería a hacer un intercambio aquí"],
+        2: ["Insatisfecho", "No fue lo que esperaba", "Regular experiencia"],
+        3: ["Aceptable", "Intercambio promedio", "No estuvo mal"],
+        4: ["Satisfecho", "Buena experiencia", "Intercambio exitoso"],
+        5: ["Muy satisfecho", "Excelente experiencia", "Lo recomendaría a otros"]
+    }
 
     # Transiciones de estados
     transitions_posts = {
-        1: [2, 4, 5],  # PUBLICADA -> CON OFERTA, PAUSADA, CANCELADA
-        2: [1, 3, 4, 5],  # CON OFERTA -> PUBLICADA, OFERTA PARCIALMENTE ACEPTADA, PAUSADA, CANCELADA
-        3: [2, 4, 5],  # OFERTA PARCIALMENTE ACEPTADA -> CON OFERTA, PAUSADA, CANCELADA
-        4: [3, 2, 1, 5],  # PAUSADA -> OFERTA PARCIALMENTE ACEPTADA, CON OFERTA, PUBLICADA, CANCELADA
-        5: [],  # CANCELADA -> Sin transición
-        6: [7, 5],  # EN INTERCAMBIO -> INTERCAMBIADA, CANCELADA
-        7: []  # INTERCAMBIADA -> Sin transición
+        1: [2, 4, 5],
+        2: [1, 3, 4, 5],
+        3: [2, 4, 5],
+        4: [3, 2, 1, 5],
+        5: [],
+        6: [7, 5],
+        7: []
     }
     transitions_offers = {
-        8: [9, 11, 12],  # PENDIENTE -> PARCIALMENTE ACEPTADA, RECHAZADA, CANCELADA
-        9: [10, 11, 12],  # PARCIALMENTE ACEPTADA -> ACEPTADA, RECHAZADA, CANCELADA
-        10: [],  # ACEPTADA -> Sin transición
-        11: [],  # RECHAZADA -> Sin transición
-        12: []  # CANCELADA -> Sin transición
+        8: [9, 11, 12],
+        9: [10, 11, 12],
+        10: [],
+        11: [],
+        12: []
     }
     transitions_exchange = {
-        13: [14, 15, 17],  # NOTIFICADO -> CANCELADO, PENDIENTE DE ENVIO, CONCRETADO
-        14: [],  # CANCELADO -> Sin transición
-        15: [16, 17],  # PENDIENTE DE ENVIO -> EN ENVIO, CONCRETADO
-        16: [17],  # EN ENVIO -> CONCRETADO
-        17: []  # CONCRETADO -> Sin transición
+        13: [14, 15, 17],
+        14: [],
+        15: [16, 17],
+        16: [17],
+        17: []
     }
 
-    # Variables para manejar IDs internos
+    # Variables para IDs y contadores
     current_offer_id = 1
     current_exchange_id = 1
+    general_counts = {
+        "posts": 0,
+        "offers": 0,
+        "exchanges": 0,
+        "states": 0
+    }
+    state_counts = defaultdict(lambda: defaultdict(int))  # Estructura: {entidad: {estado: cantidad}}
+
+        # Filtrar solo posts válidos
+    exchange_posts = [post for post in posts if post["type"] == "EXCHANGE"]
+    valid_post_ids = {post["id_post"] for post in exchange_posts}
 
     with open(state_history_sql_path, "a", encoding='utf-8') as f_state, \
          open(exchange_offer_sql_path, "a", encoding='utf-8') as f_offer, \
          open(exchange_sql_path, "a", encoding='utf-8') as f_exchange, \
-         open(exchange_users_sql_path, "a", encoding='utf-8') as f_exchange_users:
-        
+         open(exchange_users_sql_path, "a", encoding='utf-8') as f_exchange_users, \
+         open(survey_sql_path, "a", encoding='utf-8') as f_survey:
+
         for i in range(0, len(posts), 2):
             if i + 1 >= len(posts):
                 break
 
-            post_a = posts[i]
-            post_b = posts[i + 1]
+            if len(exchange_posts) < 2:
+                break
 
-            if post_a["type"] != "EXCHANGE" or post_b["type"] != "EXCHANGE":
+            # Seleccionar dos posts aleatoriamente
+            post_a = exchange_posts.pop(random.randint(0, len(exchange_posts) - 1))
+            post_b = exchange_posts.pop(random.randint(0, len(exchange_posts) - 1))
+
+            # Validar que ambos posts existen en los IDs válidos
+            if post_a["id_post"] not in valid_post_ids or post_b["id_post"] not in valid_post_ids:
                 continue
 
             # Paso 1: Estado inicial de los posts
@@ -608,9 +719,16 @@ def generate_state_history_with_logic(posts):
                 f"INSERT INTO public.state_history (initial_date, final_date, id_post, id_state) "
                 f"VALUES ('{initial_date_b}', NULL, {post_b['id_post']}, 1);\n"
             )
+            general_counts["posts"] += 2
+            state_counts["posts"][1] += 2
 
             # Paso 2: Crear una oferta de intercambio
             offer_date = initial_date_b + timedelta(days=random.randint(1, 5))
+
+            # Validar que los IDs siguen siendo válidos antes de insertar
+            if post_b["id_post"] not in valid_post_ids or post_a["id_post"] not in valid_post_ids:
+                continue
+
             f_state.write(
                 f"UPDATE public.state_history SET final_date = '{offer_date}' WHERE id_post = {post_a['id_post']} AND final_date IS NULL;\n"
             )
@@ -618,6 +736,8 @@ def generate_state_history_with_logic(posts):
                 f"INSERT INTO public.state_history (initial_date, final_date, id_post, id_state) "
                 f"VALUES ('{offer_date}', NULL, {post_a['id_post']}, 2);\n"
             )
+            general_counts["states"] += 2
+            state_counts["posts"][2] += 1
 
             f_offer.write(
                 f"INSERT INTO public.exchange_offer (offer_date, offered_post_id, post_id, user_id) "
@@ -625,11 +745,17 @@ def generate_state_history_with_logic(posts):
             )
             offer_id = current_offer_id
             current_offer_id += 1
+            general_counts["offers"] += 1
 
             # Paso 3: Transiciones de la oferta
-            current_offer_state = 8
+            current_offer_state = 8  # Estado inicial de la oferta
             while transitions_offers[current_offer_state]:
-                next_offer_state = random.choice(transitions_offers[current_offer_state])
+                if current_offer_state == 8:  # PENDIENTE
+                    next_offer_choices = [(9, 0.7), (11, 0.1), (12, 0.2)]  # 70% PARCIALMENTE ACEPTADA
+                elif current_offer_state == 9:  # PARCIALMENTE ACEPTADA
+                    next_offer_choices = [(10, 0.8), (11, 0.1), (12, 0.1)]  # 80% ACEPTADA
+
+                next_offer_state = weighted_choice(next_offer_choices)
                 state_date = offer_date + timedelta(days=random.randint(1, 5), hours=random.randint(0, 23), minutes=random.randint(0, 59), seconds=random.randint(0, 59))
                 f_state.write(
                     f"UPDATE public.state_history SET final_date = '{state_date}' WHERE id_exchange_offer = {offer_id} AND final_date IS NULL;\n"
@@ -639,20 +765,25 @@ def generate_state_history_with_logic(posts):
                     f"VALUES ('{state_date}', NULL, {offer_id}, {next_offer_state});\n"
                 )
                 current_offer_state = next_offer_state
+                general_counts["states"] += 1
+                state_counts["offers"][next_offer_state] += 1
 
             # Paso 4: Crear intercambio si la oferta es aceptada
             if current_offer_state == 10:
-                exchange_date = state_date + timedelta(days=random.randint(1, 5), hours=random.randint(0, 23), minutes=random.randint(0, 59), seconds=random.randint(0, 59))
+                exchange_date = random_date(2024, 2025)
+                send_date = random_date(2024, 2025)
                 f_exchange.write(
-                    f"INSERT INTO public.exchange (exchange_date, shipping_type, exchange_offer_id) "
-                    f"VALUES ('{exchange_date}', 'DELIVERY', {offer_id});\n"
+                    f"INSERT INTO public.exchange (exchange_date, shipping_type, exchange_offer_id, send_book_date)"
+                    f"VALUES ('{exchange_date}', 'DELIVERY', {offer_id}, '{send_date}');\n"
                 )
+                general_counts["exchanges"] += 1
+
                 f_state.write(
                     f"INSERT INTO public.state_history (initial_date, final_date, id_exchange, id_state) "
                     f"VALUES ('{exchange_date}', NULL, {current_exchange_id}, 13);\n"
                 )
+                state_counts["exchanges"][13] += 1
 
-                # Paso 5: Agregar ambos usuarios a la tabla exchange_users
                 f_exchange_users.write(
                     f"INSERT INTO public.exchange_users (exchange_id, user_id) VALUES ({current_exchange_id}, {post_a['id_user']});\n"
                 )
@@ -663,10 +794,22 @@ def generate_state_history_with_logic(posts):
                 current_exchange_id += 1
 
                 # Paso 6: Transiciones del intercambio
-                current_exchange_state = 13
+                current_exchange_state = 13  # Estado inicial del intercambio
                 while transitions_exchange[current_exchange_state]:
-                    next_exchange_state = random.choice(transitions_exchange[current_exchange_state])
-                    exchange_state_date = exchange_date + timedelta(days=random.randint(1, 5), hours=random.randint(0, 23), minutes=random.randint(0, 59), seconds=random.randint(0, 59))
+                    if current_exchange_state == 13:  # NOTIFICADO
+                        next_exchange_choices = [(14, 0.05), (15, 0.2), (17, 0.75)]  # 75% CONCRETADO
+                    elif current_exchange_state == 15:  # PENDIENTE DE ENVIO
+                        next_exchange_choices = [(16, 0.1), (17, 0.9)]  # 90% CONCRETADO
+                    elif current_exchange_state == 16:  # EN ENVIO
+                        next_exchange_choices = [(17, 1.0)]  # Siempre CONCRETADO
+
+                    next_exchange_state = weighted_choice(next_exchange_choices)
+                    exchange_state_date = exchange_date + timedelta(
+                        days=random.randint(1, 5),
+                        hours=random.randint(0, 23),
+                        minutes=random.randint(0, 59),
+                        seconds=random.randint(0, 59)
+                    )
                     f_state.write(
                         f"UPDATE public.state_history SET final_date = '{exchange_state_date}' WHERE id_exchange = {current_exchange_id - 1} AND final_date IS NULL;\n"
                     )
@@ -675,11 +818,278 @@ def generate_state_history_with_logic(posts):
                         f"VALUES ('{exchange_state_date}', NULL, {current_exchange_id - 1}, {next_exchange_state});\n"
                     )
                     current_exchange_state = next_exchange_state
+                    general_counts["states"] += 1
+                    state_counts["exchanges"][next_exchange_state] += 1
+                                # Paso 7: Crear encuesta si el intercambio es concretado
 
-            f_state.write("\n")
-            f_offer.write("\n")
-            f_exchange.write("\n")
-            f_exchange_users.write("\n")
+                if current_exchange_state == 17:  # CONCRETADO
+                    # Generar encuestas para ambos usuarios
+                    for user_id, other_user_id in [(post_a["id_user"], post_b["id_user"]), (post_b["id_user"], post_a["id_user"])]:
+                        book_rating = random.randint(1, 5)
+                        user_rating = random.randint(1, 5)
+                        comment = random.choice(SURVEY_COMMENTS[book_rating])
+
+                        f_survey.write(
+                            f"INSERT INTO public.survey (book_rating, comment, type, user_rating, id_book, id_exchange, id_user, id_user_rated) "
+                            f"VALUES ({book_rating}, '{comment}', 'EXCHANGE', {user_rating}, {post_a['id_book']}, {current_exchange_id - 1}, {user_id}, {other_user_id});\n"
+                        )
+
+    # Resumen general
+    print("\nResumen general:")
+    for entity, count in general_counts.items():
+        print(f"{entity.capitalize()}: {count}")
+
+    # Resumen detallado
+    print("\nResumen detallado de estados:")
+    for entity, states in state_counts.items():
+        print(f"{entity.capitalize()}:")
+        for state, count in states.items():
+            print(f"  Estado {state}: {count} registros")
+
+def weighted_choice(choices):
+    """
+    Selecciona un elemento basado en una distribución de pesos.
+    choices: Lista de tuplas (elemento, peso).
+    """
+    total = sum(weight for _, weight in choices)
+    r = random.uniform(0, total)
+    upto = 0
+    for elem, weight in choices:
+        if upto + weight >= r:
+            return elem
+        upto += weight
+    return choices[-1][0]   
+
+def generate_reviews():
+    # Ruta para guardar el archivo SQL
+    reviews_sql_path = "data/output/sql/22_review.sql"
+
+    # Posibles reviews agrupadas por rating
+    BOOK_RATING_REVIEW = {
+        1: ["Muy malo", "No lo recomiendo", "Pésimo", "Decepcionante", "No me gustó", "Muy aburrido", "No lo compren", "No lo vale", "No lo leería de nuevo", "No lo recomendaría", "No lo volvería a comprar"],
+        2: ["Malo", "Regular", "No es lo que esperaba", "Podría mejorar", "No es tan bueno", "No es lo mejor", "No lo compraría de nuevo", "No lo recomendaría mucho", "No lo volvería a leer", "No lo volvería a comprar"],
+        3: ["Aceptable", "Está bien", "Nada especial", "Es pasable", "Cumple, pero no destaca", "Normal", "No está mal", "No está tan bueno", "No es tan recomendable", "No es tan bueno como esperaba"],
+        4: ["Bueno", "Me gustó", "Está bastante bien", "Recomendable", "Buena calidad", "Vale la pena leerlo", "Lo disfruté", "Lo volvería a comprar", "Lo recomendaría", "Lo volvería a leer"],
+        5: ["Excelente", "Increíble", "Lo recomiendo mucho", "Maravilloso", "Muy bueno", "Me encantó", "Lo amé", "Lo mejor que he leído", "Lo volvería a comprar", "Lo volvería a leer"]
+    }
+
+    # Almacenar reviews generadas para evitar duplicados
+    generated_reviews = set()  # Estructura {(id_user, id_book)}
+
+    reviews = []  # Para almacenar los datos de las reseñas generadas
+
+    with open(reviews_sql_path, "a", encoding="utf-8") as f:
+        for id_book in range(1, BOOKS_SIZE + 1):  # Iterar sobre cada libro
+            num_reviews = random.randint(3, 15)  # Generar entre 3 y 15 reviews por libro
+            count = 0  # Contador de reviews generadas por libro
+
+            while count < num_reviews:
+                id_user = random.randint(1, USERS_SIZE)
+
+                # Evitar duplicados (un usuario no puede hacer más de una review por libro)
+                if (id_user, id_book) in generated_reviews:
+                    continue
+
+                # Generar datos de la review
+                created_at = "NOW()"
+                updated_at = "NOW()"
+                rating = random.randint(1, 5)  # Generar un rating aleatorio entre 1 y 5
+                review = random.choice(BOOK_RATING_REVIEW[rating])  # Seleccionar una review acorde al rating
+
+                # Escribir en el archivo SQL
+                f.write(
+                    f"INSERT INTO public.review (created_at, updated_at, rating, comment, id_book, id_user) "
+                    f"VALUES ({created_at}, {updated_at}, {rating}, '{review}', {id_book}, {id_user});\n"
+                )
+
+                # Agregar a las reviews generadas y lista de resultados
+                generated_reviews.add((id_user, id_book))
+                reviews.append({
+                    "id_user": id_user,
+                    "id_book": id_book,
+                    "rating": rating,
+                    "review": review
+                })
+
+                count += 1
+
+    print(f"Se generaron {len(reviews)} reseñas en total.")
+    return reviews
+
+def generate_logic_for_my_users(posts):
+    posts_sql_path = "data/output/sql/16_post.sql"
+    exchange_offer_sql_path = "data/output/sql/18_exchange_offer.sql"
+    exchanges_sql_path = "data/output/sql/19_exchange.sql"
+    survey_sql_path = "data/output/sql/23_survey.sql"
+    state_history_sql_path = "data/output/sql/20_state_history.sql"
+
+    book_states = ["COMO_NUEVO", "MUY_BUENO", "BUENO", "ACEPTABLE", "NUEVO"]
+    types = ["EXCHANGE", "PURCHASE"]
+
+    id_julian = 30002  # ID del usuario específico
+    posts_created = []
+    num_posts_to_generate = 8  # Número de posts a crear
+    num_posts_to_offer = 5  # Número de posts para crear ofertas
+
+    # Insertar una linea en el archivo SQL 
+    with open(posts_sql_path, "a", encoding='utf-8') as f_posts, \
+            open(state_history_sql_path, "a", encoding='utf-8') as f_states, \
+            open(exchange_offer_sql_path, "a", encoding='utf-8') as f_offers, \
+            open(survey_sql_path, "a", encoding='utf-8') as f_survey, \
+            open(exchanges_sql_path, "a", encoding='utf-8') as f_exchanges:
+        f_posts.write(
+            f"--------------------------------------------------\n"
+            f"-- Crear publicaciones para el usuario específico\n"
+            f"--------------------------------------------------\n"
+        )
+        f_states.write(
+            f"--------------------------------------------------\n"
+            f"-- Crear estados para las publicaciones\n"
+            f"--------------------------------------------------\n"
+        )
+        f_offers.write(
+            f"--------------------------------------------------\n"
+            f"-- Crear ofertas de intercambio para las publicaciones\n"
+            f"--------------------------------------------------\n"
+        )
+        f_survey.write(
+            f"--------------------------------------------------\n"
+            f"-- Crear encuestas para los intercambios\n"
+            f"--------------------------------------------------\n"
+        )
+        f_exchanges.write(
+            f"--------------------------------------------------\n"
+            f"-- Crear intercambios\n"
+            f"--------------------------------------------------\n"
+        )
+            
+
+    # Crear publicaciones para el usuario específico
+    with open(posts_sql_path, "a", encoding='utf-8') as f_posts, \
+         open(state_history_sql_path, "a", encoding='utf-8') as f_states:
+        
+        for i in range(GENERATED_POSTS, GENERATED_POSTS + num_posts_to_generate):
+            created_at = "NOW()"
+            updated_at = "NOW()"
+            description = random.choice(["Nuevo", "Usado", "Excelente estado"])
+            image = f"image_{random.randint(1, 1000)}.jpg"
+            price = round(random.uniform(5000, 90000), 2)
+            type_ = random.choice(types)
+            book_state = random.choice(book_states)
+            id_book = random.randint(1, BOOKS_SIZE)
+
+            # Evitar duplicados
+            while any(post["id_user"] == id_julian and post["id_book"] == id_book for post in posts_created):
+                id_book = random.randint(1, BOOKS_SIZE)
+
+            post = {
+                "id_post": i + 1,
+                "id_user": id_julian,
+                "id_book": id_book,
+                "type": type_,
+                "created_at": created_at
+            }
+            posts_created.append(post)
+
+            # Escribir la publicación
+            f_posts.write(
+                f"INSERT INTO public.post (created_at, updated_at, book_state, description, image, price, type, id_book, id_user, book_send, book_received) "
+                f"VALUES ({created_at}, {updated_at}, '{book_state}', '{description}', '{image}', {price}, '{type_}', {id_book}, {id_julian}, false, false);\n"
+            )
+
+            # Registrar el estado de "CREADO" en state_history
+            f_states.write(
+                f"INSERT INTO public.state_history (initial_date, final_date, id_post, id_state) "
+                f"VALUES ({created_at}, NULL, {post['id_post']}, 1);\n"
+            )
+
+    
+    # Crearle ofertas entre 1 y 5 publicaciones al usuario específico
+    exchange_posts = [post for post in posts_created if post["type"] == "EXCHANGE"]
+    valid_post_ids = {post["id_post"] for post in exchange_posts}
+    exchange_offers = []
+
+    with open(exchange_offer_sql_path, "a", encoding='utf-8') as f_offers, \
+         open(state_history_sql_path, "a", encoding='utf-8') as f_states:
+        
+        for post in posts_created:
+            if post["type"] == "EXCHANGE":
+                num_offers = random.randint(1, 5)
+                count = 0
+
+                while count < num_offers:
+                    other_post = random.choice(exchange_posts)
+                    if other_post["id_post"] not in valid_post_ids:
+                        continue
+
+                    offer_date = random_date()
+                    f_states.write(
+                        f"UPDATE public.state_history SET final_date = '{offer_date}' WHERE id_post = {post['id_post']} AND final_date IS NULL;\n"
+                    )
+                    f_states.write(
+                        f"INSERT INTO public.state_history (initial_date, final_date, id_post, id_state) "
+                        f"VALUES ('{offer_date}', NULL, {post['id_post']}, 2);\n"
+                    )
+
+                    f_offers.write(
+                        f"INSERT INTO public.exchange_offer (offer_date, offered_post_id, post_id, user_id) "
+                        f"VALUES ('{offer_date}', {other_post['id_post']}, {post['id_post']}, {other_post['id_user']});\n"
+                    )
+                    f_states.write(
+                        f"INSERT INTO public.state_history (initial_date, final_date, id_exchange_offer, id_state) "
+                        f"VALUES ('{offer_date}', NULL, {post['id_post']}, 8);\n"
+                    )
+
+                    exchange_offers.append({
+                        "offered_post_id": other_post["id_post"],
+                        "post_id": post["id_post"],
+                        "user_id": other_post["id_user"],
+                        "offer_date": offer_date
+                    })
+
+                    count += 1
+    
+    # Crear intercambios para las ofertas
+    
+    with open(exchanges_sql_path, "a", encoding='utf-8') as f_exchanges, \
+         open(state_history_sql_path, "a", encoding='utf-8') as f_states, \
+            open(survey_sql_path, "a", encoding='utf-8') as f_survey:  
+        
+        for offer in exchange_offers:
+            if random.random() < 0.5:
+                exchange_date = random_date()
+                send_date = exchange_date + timedelta(days=random.randint(1, 5))
+                
+                # Pasar la oferta de intercambio a estado "ACEPTADA"
+                f_states.write(
+                    f"UPDATE public.state_history SET final_date = '{exchange_date}' WHERE id_exchange_offer = {offer['post_id']} AND final_date IS NULL;\n"
+                )
+                f_states.write(
+                    f"INSERT INTO public.state_history (initial_date, final_date, id_exchange_offer, id_state) "
+                    f"VALUES ('{exchange_date}', NULL, {offer['post_id']}, 10);\n"
+                )
+                # Crear intercambio
+                f_exchanges.write(
+                    f"INSERT INTO public.exchange (exchange_date, shipping_type, exchange_offer_id, send_book_date) "
+                    f"VALUES ('{exchange_date}', 'DELIVERY', {offer['post_id']}, '{send_date}');\n"
+                )
+                # Pasar el intercambio a estado "NOTIFICADO"
+                f_states.write(
+                    f"INSERT INTO public.state_history (initial_date, final_date, id_exchange, id_state) "
+                    f"VALUES ('{exchange_date}', NULL, {offer['post_id']}, 13);\n"
+                )
+                # Finalizar estado "NOTIFICADO"
+                f_states.write(
+                    f"INSERT INTO public.state_history (initial_date, final_date, id_exchange, id_state) "
+                    f"VALUES ('{send_date}', NULL, {offer['post_id']}, 17);\n"
+                )
+                
+                # Pasar intercambio a estado "CONCRETADO"
+                f_states.write(
+                    f"INSERT INTO public.state_history (initial_date, final_date, id_exchange, id_state) "
+                    f"VALUES ('{send_date}', NULL, {offer['post_id']}, 18);\n"
+                )
+            
 
 if __name__ == "__main__":
     main()
