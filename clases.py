@@ -1,6 +1,7 @@
 import random
 import os
 from unicodedata import normalize
+from datetime import datetime, timedelta
 
 BOOK_STATES = ["COMO_NUEVO", "MUY_BUENO", "BUENO", "ACEPTABLE", "NUEVO"]
 BOOK_STATE_DESCRIPTIONS = ["Nuevo", "Usado", "Excelente estado", "Bueno", "Aceptable"]
@@ -18,7 +19,10 @@ STATE_HISTORIES_PATH = f"{FOLDER_PATH}/20_state_history.sql"
 SURVEYS_PATH = f"{FOLDER_PATH}/23_surveys.sql"
 REVIEWS_PATH = f"{FOLDER_PATH}/22_reviews.sql"
 EXCHANGE_USERS_PATH = f"{FOLDER_PATH}/21_exchange_users.sql"
-BOOKS_SIZE = 1274
+LITERARY_ROUTES_PATH = f"{FOLDER_PATH}/24_literary_routes.sql"
+LITERARY_ROUTES_BOOK_PATH = f"{FOLDER_PATH}/25_literary_routes_books.sql"
+
+BOOKS_SIZE = 719
 BOOK_RATING_REVIEW = {
     1: ["Muy malo", "No lo recomiendo", "Pésimo", "Decepcionante", "No me gustó", "Muy aburrido", "No lo compren", "No lo vale", "No lo leería de nuevo", "No lo recomendaría", "No lo volvería a comprar"],
     2: ["Malo", "Regular", "No es lo que esperaba", "Podría mejorar", "No es tan bueno", "No es lo mejor", "No lo compraría de nuevo", "No lo recomendaría mucho", "No lo volvería a leer", "No lo volvería a comprar"],
@@ -61,6 +65,47 @@ def generate_random_timestamp():
     second = f"0{second}" if second < 10 else second
     return f"{year}-{month}-{day} {hour}:{minute}:{second}"
 
+USER_DISTRIBUTION_BY_MONTH = {
+    8: 100,   # agosto
+    9: 200,  # septiembre
+    10: 500, # octubre
+    11: 100, # noviembre
+    12: 100  # diciembre 
+}
+
+def generate_logical_timestamp():
+    months = list(USER_DISTRIBUTION_BY_MONTH.keys())
+    weights = list(USER_DISTRIBUTION_BY_MONTH.values())
+    
+    # Elige el mes según la distribución dada
+    selected_month = random.choices(months, weights=weights, k=1)[0]
+
+    # Define días válidos evitando fines de semana (más lógico)
+    year = 2024
+    first_day = datetime(year, selected_month, 1)
+    if selected_month == 12:
+        next_month_first_day = datetime(year + 1, 1, 1)
+    else:
+        next_month_first_day = datetime(year, selected_month + 1, 1)
+    
+    valid_days = []
+    current_day = first_day
+    while current_day < next_month_first_day:
+        if current_day.weekday() < 5:  # de lunes(0) a viernes(4)
+            valid_days.append(current_day)
+        current_day += timedelta(days=1)
+
+    # Elige un día más lógico (menos probable en los extremos del mes)
+    selected_day = random.choice(valid_days)
+
+    # Hora más lógica: usuarios suelen registrarse en horario laboral (8-18hs)
+    hour = random.randint(8, 18)
+    minute = random.randint(0, 59)
+    second = random.randint(0, 59)
+
+    timestamp = selected_day.replace(hour=hour, minute=minute, second=second)
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
 def generate_random_birth_date():
     year = random.randint(1950, 2009)
     month = random.randint(1, 12)
@@ -92,7 +137,6 @@ class StateMachine:
         else:
             raise ValueError(f"Invalid transition from {self.state} to {new_state}")
 
-
 class User:
     def __init__(self, id_user, id_province, id_municipality, valid_emails, email="", name="", last_name="", genre=""):
         self.id_user = id_user
@@ -102,7 +146,7 @@ class User:
         self.genre = genre
         self.hashed_password = generate_random_password()
         self.phone_number = generate_random_phone()
-        self.created_at = generate_random_timestamp()
+        self.created_at = generate_logical_timestamp()
         self.instagram = f"@{self.name.lower()}{self.last_name.lower()}"
         self.user_site_name = f"{self.name.lower()}.{self.last_name.lower()}"
         self.id_province = id_province
@@ -110,7 +154,6 @@ class User:
         self.address = f"{random.choice(RANDOM_ADDRESS_NAMES)}, {random.randint(1, 4000)}"
         self.birth_date = generate_random_birth_date()
         self.posts = []
-
 
         if self.genre == "":
             self.genre = random.choice(RANDOM_GENRES)
@@ -183,8 +226,8 @@ class Post(StateMachine):
         self.type = type_
         self.created_at = created_at
         self.updated_at = created_at
-        self.book_received = False
-        self.book_send = False
+        self.book_received = "NULL"
+        self.book_send = "False"
         self.book_state = random.choice(BOOK_STATES)
         self.description = random.choice(BOOK_STATE_DESCRIPTIONS)
         self.image = "NULL"
@@ -385,16 +428,19 @@ class Survey:
         self.id_book = id_book
         self.id_user_rated = id_user_rated
 
+        # El 90% de las encuestas recomiendan ogma
+        self.recommendation = random.choices([True, False], weights=[90, 10])[0]
+
     def __str__(self):
-        return f"Survey({self.id_survey}, {self.id_exchange}, {self.id_user}, {self.survey_date})"
+        return f"Survey({self.id_survey}, {self.id_exchange}, {self.id_user}, {self.survey_date}, {self.book_rating}, {self.user_rating}, {self.comment}, {self.type}, {self.id_book}, {self.id_user_rated})"
     
     def __repr__(self):
         return str(self)
     
     def create_sql(self):
         insert_in_survey = (
-            f"INSERT INTO public.survey (book_rating, user_rating, comment, type, id_book, id_user_rated, id_user, id_exchange) \n"
-            f"VALUES ({self.book_rating}, {self.user_rating}, '{self.comment}', '{self.type}', {self.id_book}, {self.id_user_rated}, {self.id_user}, {self.id_exchange});"
+            f"INSERT INTO public.survey (book_rating, user_rating, comment, type, id_book, id_user_rated, id_user, id_exchange, recommendation) \n"
+            f"VALUES ({self.book_rating}, {self.user_rating}, '{self.comment}', '{self.type}', {self.id_book}, {self.id_user_rated}, {self.id_user}, {self.id_exchange}, {self.recommendation}); \n"
         )
         return insert_in_survey
 
@@ -421,9 +467,39 @@ class Review:
     
     def generate_random_comment(self):
         return random.choice(BOOK_RATING_REVIEW[self.rating])
-         
+
+class LiteraryRoute:
+    def __init__(self, id_literary_route, books, id_user, created_at, name="", description=""):
+        self.id_literary_route = id_literary_route
+        self.books = books
+        self.rating = random.randint(1, 5)
+        self.id_user = id_user
+        self.created_at = created_at
+        self.name = name
+        self.description = description
+
+    def __str__(self):
+        return f"LiteraryRoute({self.id_literary_route}, {self.id_user}, {self.name}, {self.description})"
+    
+    def __repr__(self):
+        return str(self)
+    
+    def create_sql(self):
+        insert_in_literary_route = (
+            f"INSERT INTO public.literary_route (id_user, name, description, rating, created_at) \n"
+            f"VALUES ({self.id_user}, '{self.name}', '{self.description}', {self.rating}, '{self.created_at}'); \n"
+        )
+        insert_in_literary_route_book = ""
+        for book in self.books:
+            insert_in_literary_route_book += (
+                f"INSERT INTO public.literary_route_book (id_literary_route, id_book) \n"
+                f"VALUES ({self.id_literary_route}, {book}); \n"
+            )
+            
+        return insert_in_literary_route, insert_in_literary_route_book
+
 class Writer:
-    def __init__(self, user_path, post_path, exchange_offer_path, exchange_path, survey_path, review_path, state_history_path, exchange_users_path, exchange_confirmed_needed):
+    def __init__(self, user_path, post_path, exchange_offer_path, exchange_path, survey_path, review_path, state_history_path, exchange_users_path, exchange_confirmed_needed, literary_route_path, literary_route_book_path):
         self.user_path = user_path
         self.post_path = post_path
         self.exchange_offer_path = exchange_offer_path
@@ -439,8 +515,11 @@ class Writer:
         self.surveys = []
         self.reviews = []
         self.valid_emails = []
+        self.literary_routes = []
         self.exchanges_confirmed = 0
         self.exchange_confirmed_needed = exchange_confirmed_needed
+        self.literary_route_path = literary_route_path
+        self.literary_route_book_path = literary_route_book_path
         
     def generate_users(self, n):
         for i in range(n):
@@ -462,12 +541,14 @@ class Writer:
         print(f"Total users: {users_len}")
         print(f"Total users reduced: {len(users_reduced)}")
         print(f"Distinct users ids: {len(set([user.id_user for user in users_reduced]))}")
+
         id_post = 1
         for user in users_reduced:
             for i in range(random.randint(min, max)):
                 id_book = random.randint(1, BOOKS_SIZE)
                 type_ = random.choice(["PURCHASE", "EXCHANGE"])
-                created_at = generate_random_timestamp()
+                # al created_at del usuario sumarle de 1 a 5 dias
+                created_at = datetime.strptime(user.created_at, "%Y-%m-%d %H:%M:%S") + timedelta(days=random.randint(1, 5))
                 post = Post(id_post, user.id_user, id_book, type_, created_at)
                 
                 # Check if the user already created a post with the same book
@@ -483,81 +564,111 @@ class Writer:
 
     def find_post_not_in_user_id(self, user_id):
         posts_without_user_id = [post for post in self.posts if post.id_user != user_id]
-        print(f"Posts without user id: {len(posts_without_user_id)}")
         return random.choice(posts_without_user_id)
 
     def generate_exchanges(self):
         for post in self.posts:
             if post.state == 1 and post.type == "EXCHANGE":
-                # Crearle entre 1 y 5 ofertas de intercambio
-                for i in range(random.randint(1, 5)):
-                    # Obtener otro post que no sea el mismo y que no sea de la misma persona
+                num_offers = random.randint(1, 3)
+                offers_for_this_post = []
+
+                for _ in range(num_offers):
                     other_post = self.find_post_not_in_user_id(post.id_user)
-                    
-                    # Crearle oferta de intercambio
-                    exchange_offer = ExchangeOffer(len(self.exchange_offers) + 1, other_post.id_post, post.id_post, other_post.id_user, generate_random_timestamp())
+                    timestamp = post.created_at + timedelta(days=random.randint(1, 2))
+
+                    exchange_offer = ExchangeOffer(
+                        id_exchange_offer=len(self.exchange_offers) + 1,
+                        offered_post_id=other_post.id_post,
+                        post_id=post.id_post,
+                        user_id=other_post.id_user,
+                        offer_date=timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
                     post.append_exchange_offer(exchange_offer)
                     self.exchange_offers.append(exchange_offer)
-                    insert_in_exchange_offer, insert_in_state_history = exchange_offer.create_sql()
-                    self.write(self.exchange_offer_path, insert_in_exchange_offer)
-                    self.write(self.state_history_path, insert_in_state_history)
 
-                    # Cambiar estado del post a CON OFERTA
+                    insert_offer_sql, insert_offer_state = exchange_offer.create_sql()
+                    self.write(self.exchange_offer_path, insert_offer_sql)
+                    self.write(self.state_history_path, insert_offer_state)
+
                     if post.state == 1:
-                        post.change_to_con_oferta(generate_random_timestamp())
-                
-                if self.exchanges_confirmed < self.exchange_confirmed_needed:
-                    # Aceptarle una oferta de intercambio
-                    # Cambiar el estado de la oferta de intercambio a PARCIALMENTE ACEPTADA
-                    exchange_offer = post.get_exchange_offer(random.choice(post.get_exchange_offers()).offered_post_id)
-                    history_sql = exchange_offer.change_to_parcialmente_aceptada(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                        sql = post.change_to_con_oferta(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
 
-                    # Cambiar el estado del post a OFERTA PARCIALMENTE ACEPTADA
-                    history_sql = post.change_to_oferta_parcialmente_aceptada(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                    offers_for_this_post.append((exchange_offer, other_post))
 
-                    # Crear intercambio
-                    exchange = Exchange(len(self.exchanges) + 1, exchange_offer.id_exchange_offer, post.id_post, post.id_user, generate_random_timestamp())
-                    self.exchanges.append(exchange)
-                    insert_in_exchange, insert_in_state_history = exchange.create_sql()
-                    self.write(self.exchange_path, insert_in_exchange)
-                    self.write(self.state_history_path, insert_in_state_history)
-                    # Cambiar el post a EN INTERCAMBIO
-                    history_sql = post.change_to_en_intercambio(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                if self.exchanges_confirmed >= self.exchange_confirmed_needed or not offers_for_this_post:
+                    continue
 
-                    # Cambiar estado del intercambio a PENDEINTE DE ENVIO
-                    history_sql = exchange.change_to_pendiente_de_envio(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                selected_offer, other_post = random.choice(offers_for_this_post)
 
-                    # Cambiar estado del intercambio a EN ENVIO
-                    history_sql = exchange.change_to_en_envio(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                # Definir trayectorias posibles
+                possible_paths = [
+                    ["PARCIAL"],
+                    ["PARCIAL", "EN_INTERCAMBIO"],
+                    ["PARCIAL", "EN_INTERCAMBIO", "PENDIENTE_ENVIO"],
+                    ["PARCIAL", "EN_INTERCAMBIO", "PENDIENTE_ENVIO", "EN_ENVIO"],
+                    ["PARCIAL", "EN_INTERCAMBIO", "PENDIENTE_ENVIO", "EN_ENVIO", "COMPLETO"]
+                ]
+                path = random.choice(possible_paths)
+                timestamp = datetime.strptime(selected_offer.offer_date, "%Y-%m-%d %H:%M:%S")
 
-                    # Cambiar estado del intercambio a CONCRETADO SATISFACTORIAMENTE
-                    history_sql = exchange.change_to_concretado_satisfactoriamente(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                for step in path:
+                    timestamp += timedelta(days=1)
 
-                    # Cambiar estado del post a INTERCAMBIADA
-                    history_sql = post.change_to_intercambiada(generate_random_timestamp())
-                    self.write(self.state_history_path, history_sql)
+                    if step == "PARCIAL":
+                        sql = selected_offer.change_to_parcialmente_aceptada(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
 
-                    # Generar exchange_users
-                    exchange_users_sql = exchange.generate_exchage_users(post.id_user, other_post.id_user)
-                    self.write(self.exchange_users_path, exchange_users_sql)
+                        sql = post.change_to_oferta_parcialmente_aceptada(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
 
-                    # Generate survey for both users
-                    survey_a = Survey(len(self.surveys) + 1, exchange.id_exchange, post.id_user, other_post.id_book, other_post.id_user)
-                    survey_b = Survey(len(self.surveys) + 2, exchange.id_exchange, other_post.id_user, post.id_book, post.id_user)
-                    self.surveys.append(survey_a)
-                    self.surveys.append(survey_b)
-                    survey_a_sql = survey_a.create_sql()
-                    survey_b_sql = survey_b.create_sql()
-                    self.write(self.survey_path, survey_a_sql)
-                    self.write(self.survey_path, survey_b_sql)
+                    elif step == "EN_INTERCAMBIO":
+                        exchange = Exchange(
+                            id_exchange=len(self.exchanges) + 1,
+                            id_exchange_offer=selected_offer.id_exchange_offer,
+                            id_post=post.id_post,
+                            id_user=post.id_user,
+                            exchange_date=timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                        )
+                        self.exchanges.append(exchange)
 
-                    self.exchanges_confirmed += 1
+                        insert_exchange_sql, insert_exchange_state = exchange.create_sql()
+                        self.write(self.exchange_path, insert_exchange_sql)
+                        self.write(self.state_history_path, insert_exchange_state)
+
+                        sql = post.change_to_en_intercambio(timestamp)
+                        self.write(self.state_history_path, sql)
+
+                    elif step == "PENDIENTE_ENVIO":
+                        exchange = self.exchanges[-1]
+                        sql = exchange.change_to_pendiente_de_envio(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
+
+                    elif step == "EN_ENVIO":
+                        exchange = self.exchanges[-1]
+                        sql = exchange.change_to_en_envio(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
+
+                    elif step == "COMPLETO":
+                        exchange = self.exchanges[-1]
+                        sql = exchange.change_to_concretado_satisfactoriamente(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.write(self.state_history_path, sql)
+
+                        sql = post.change_to_intercambiada(timestamp)
+                        self.write(self.state_history_path, sql)
+
+                        exchange_users_sql = exchange.generate_exchage_users(post.id_user, other_post.id_user)
+                        self.write(self.exchange_users_path, exchange_users_sql)
+
+                        # Encuestas
+                        survey_a = Survey(len(self.surveys) + 1, exchange.id_exchange, post.id_user, other_post.id_book, other_post.id_user)
+                        survey_b = Survey(len(self.surveys) + 2, exchange.id_exchange, other_post.id_user, post.id_book, post.id_user)
+                        self.surveys.extend([survey_a, survey_b])
+                        self.write(self.survey_path, survey_a.create_sql())
+                        self.write(self.survey_path, survey_b.create_sql())
+
+                self.exchanges_confirmed += 1
 
     def check_if_post_exists(self, post):
         for p in self.posts:
@@ -586,11 +697,15 @@ class Writer:
             self.write(self.post_path, insert_in_post)
             self.write(self.state_history_path, insert_in_state_history)
     
+    def get_post_by_id(self, id_post):
+        return next((p for p in self.posts if p.id_post == id_post), None)
+    
     def generate_aylen_exchange_offers(self, user):
         exchanges = 0
         for post in user.get_posts():
             if post.state == 1 and post.type == "EXCHANGE":
-                for i in range(random.randint(1, 15)):
+                offers_to_generate = random.randint(2, 5)
+                for i in range(offers_to_generate):
                     other_post = self.find_post_not_in_user_id(post.id_user)
                     exchange_offer = ExchangeOffer(len(self.exchange_offers) + 1, other_post.id_post, post.id_post, other_post.id_user, generate_random_timestamp())
                     post.append_exchange_offer(exchange_offer)
@@ -602,10 +717,11 @@ class Writer:
                     if post.state == 1 and random.choice([True, False]):
                         post.change_to_con_oferta(generate_random_timestamp())
 
-                if exchanges < 5:
+                if exchanges < offers_to_generate - 1:
                     # Aceptarle una oferta de intercambio
                     # Cambiar el estado de la oferta de intercambio a PARCIALMENTE ACEPTADA
                     exchange_offer = post.get_exchange_offer(random.choice(post.get_exchange_offers()).offered_post_id)
+                    other_post = self.get_post_by_id(exchange_offer.offered_post_id)
                     history_sql = exchange_offer.change_to_parcialmente_aceptada(generate_random_timestamp())
                     self.write(self.state_history_path, history_sql)
 
@@ -677,19 +793,52 @@ class Writer:
                     self.write(self.review_path, sql)
                     reviewed_by.append(id_user)
 
+    def generate_literary_routes(self, q):
+        id = 1
+        for i in range(q):
+            # Generar entre 4 y 5 libros por ruta literaria
+            cantidad_libros = random.randint(4, 5)
+            # Generar una ruta literaria con libros aleatorios, sin repetir libros
+            libros = random.sample(range(1, BOOKS_SIZE + 1), cantidad_libros)
+            # Generar un nombre para la ruta literaria
+            name = f"Ruta Literaria {id}"
+            # Generar una descripción para la ruta literaria
+            description = f"Descripción de la ruta literaria {id}"
+            # Generar una fecha de creación para la ruta literaria
+            created_at = generate_logical_timestamp()
+            # Generar un id de ruta literaria
+            id_route = id
+            # Generar un id de usuario aleatorio
+            user = random.choice(self.users)
+            id_user = user.id_user
+            # Created_at de la ruta literaria
+            created_at = datetime.strptime(user.created_at, "%Y-%m-%d %H:%M:%S") + timedelta(days=random.randint(1, 5))
+            # Generar una ruta literaria
+            literaryRoute = LiteraryRoute(id_route, libros, id_user,created_at, name, description)
+            
+            # Insertar la ruta literaria en la base de datos
+            insert_in_literary_route, insert_in_literary_route_book = literaryRoute.create_sql()
+            self.write(self.literary_route_path, insert_in_literary_route)
+            self.write(self.literary_route_book_path, insert_in_literary_route_book)
+            self.literary_routes.append(literaryRoute)
+
+            id += 1
+
+
 def main():
-    EXCHANGE_CONFIRMED_NEEDED = 7000
+    EXCHANGE_CONFIRMED_NEEDED = 300
     # delete all files in folder
     for file in os.listdir(FOLDER_PATH):
         os.remove(f"{FOLDER_PATH}/{file}")
 
-    writer = Writer(USERS_PATH, POSTS_PATH, EXCHANGE_OFFERS_PATH, EXCHANGES_PATH, SURVEYS_PATH, REVIEWS_PATH, STATE_HISTORIES_PATH, EXCHANGE_USERS_PATH, EXCHANGE_CONFIRMED_NEEDED)
-    writer.generate_users(6000)
+    writer = Writer(USERS_PATH, POSTS_PATH, EXCHANGE_OFFERS_PATH, EXCHANGES_PATH, SURVEYS_PATH, REVIEWS_PATH, STATE_HISTORIES_PATH, EXCHANGE_USERS_PATH, EXCHANGE_CONFIRMED_NEEDED, LITERARY_ROUTES_PATH, LITERARY_ROUTES_BOOK_PATH)
+    writer.generate_users(1000)
     writer.get_users()
-    writer.generate_n_post_per_user(1, 3, 80)
+    writer.generate_n_post_per_user(1, 2, 83)
     writer.generate_exchanges()
     writer.generate_aylen_case()
     writer.generate_reviews()
+    writer.generate_literary_routes(100)
 
 if __name__ == "__main__":
     main()

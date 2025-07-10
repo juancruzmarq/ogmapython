@@ -19,7 +19,7 @@ ERROR_ID = 4005
 LEN = 20000 - ERROR_ID
 SQL_FILE_PATH = "data/insert_queries.sql"
 BOOKS_SIZE = 1274
-USERS_SIZE = 3000
+USERS_SIZE = 1000
 GENERATED_POSTS = 1000
 
 # Languages map 
@@ -437,7 +437,6 @@ def format_date(date):
 
     return date
 
-
 def authors_books_to_sql():
     authors_books = pd.read_csv("data/output/csv/05_authors_books.csv")
     authors_books_sql_path = "data/output/sql/05_authors_books.sql"
@@ -577,7 +576,6 @@ def generate_randoms_users(n):
             f"VALUES ({julianuser['created_at']}, {julianuser['updated_at']}, '1995-11-19', '{julianuser['email']}', '{julianuser['genre']}', '{julianuser['hashed_password']}', '{julianuser['last_name']}', '{julianuser['name']}', '{julianuser['role']}', '{julianuser['user_site_name']}', {julianuser['id_municipality']}, {julianuser['id_province']}, '{julianuser['phone_number']}', '{julianuser['address']}', '{julianuser['instagram']}');\n"
         )
 
-
 def random_chars_for_email(birth_date):
     birth_array = birth_date.split('-')
     char_ = ["", ".", "_", "-"]
@@ -629,7 +627,6 @@ def generate_posts():
             })
     print(len(posts))
     return posts
-
 
 def generate_state_history_with_logic(posts):
     state_history_sql_path = "data/output/sql/20_state_history.sql"
@@ -1090,6 +1087,5 @@ def generate_logic_for_my_users(posts):
                     f"VALUES ('{send_date}', NULL, {offer['post_id']}, 18);\n"
                 )
             
-
 if __name__ == "__main__":
     main()
